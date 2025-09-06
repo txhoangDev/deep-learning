@@ -202,7 +202,7 @@ class PyTorchBasics:
 
         Solution length: 36 characters
         """
-        return x.cumsum(x.cumsum(0), 1)
+        return torch.cumsum(torch.cumsum(x, 0), 1)
 
     @staticmethod
     def make_it_pytorch_10(x: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
