@@ -25,7 +25,7 @@ class ClassificationLoss(nn.Module):
         Returns:
             tensor, scalar loss
         """
-        return nn.functional.cross_entropy(logits, target)
+        return nn.functional.cross_entropy(logits, target, label_smoothing=0.1)
 
 
 class LinearClassifier(nn.Module):
@@ -100,7 +100,7 @@ class MLPClassifierDeep(nn.Module):
         w: int = 64,
         num_classes: int = 6,
         hidden_dim: int = 128,
-        num_layers: int = 2,
+        num_layers: int = 3,
     ):
         """
         An MLP with multiple hidden layers
@@ -118,10 +118,11 @@ class MLPClassifierDeep(nn.Module):
         layers = [nn.Flatten()]
         c = 3 * h * w
         for _ in range(num_layers):
-            layers.append(nn.Linear(c, hidden_dim))
-            layers.append(nn.LayerNorm(hidden_dim))
-            layers.append(nn.ReLU())
-            c = hidden_dim
+          layers.append(nn.Linear(c, hidden_dim))
+          layers.append(nn.LayerNorm(hidden_dim))
+          layers.append(nn.ReLU())
+          layers.append(nn.Dropout(p=0.2))
+          c = hidden_dim
         layers.append(nn.Linear(hidden_dim, num_classes))
         self.model = nn.Sequential(*layers)
 
@@ -137,6 +138,21 @@ class MLPClassifierDeep(nn.Module):
 
 
 class MLPClassifierDeepResidual(nn.Module):
+    class Block(nn.Module):
+        def __init__(self, in_channels, out_channels):
+            super().__init__()
+            self.linear = nn.Linear(in_channels, out_channels)
+            self.norm = nn.LayerNorm(out_channels)
+            self.relu = nn.ReLU()
+            if in_channels != out_channels:
+                self.skip = nn.Linear(in_channels, out_channels)
+            else:
+                self.skip = nn.Identity()
+
+        def forward(self, x):
+            y = self.relu(self.norm(self.linear(x)))
+            return y + self.skip(x)
+            
     def __init__(
         self,
         h: int = 64,
@@ -156,13 +172,16 @@ class MLPClassifierDeepResidual(nn.Module):
             num_layers: int, number of hidden layers
         """
         super().__init__()
-        self.layers = [nn.Linear(3 * h * w, hidden_dim), nn.ReLU(), nn.Dropout(p=0.1)]
-
-        for _ in range(num_layers-1):
-            self.layers.append(nn.Linear(hidden_dim, hidden_dim))
-            self.layers.append(nn.ReLU())
-            self.layers.append(nn.Dropout(p=0.1))
+        self.layers = []
+        self.layers.append(nn.Flatten())
+        c = 3 * h * w
+        self.layers.append(nn.Linear(c, hidden_dim))
+        c = hidden_dim
+        for _ in range(num_layers):
+            self.layers.append(self.Block(c, hidden_dim))
+            c = hidden_dim
         self.layers.append(nn.Linear(hidden_dim, num_classes))
+        self.model = nn.Sequential(*self.layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -172,16 +191,7 @@ class MLPClassifierDeepResidual(nn.Module):
         Returns:
             tensor (b, num_classes) logits
         """
-        result = x.flatten()
-        for layer in self.layers:
-            if isinstance(layer, nn.Linear):
-                residual = result
-                result = layer(result)
-                if result.shape == residual.shape:
-                    result += residual
-            else:
-                result = layer(result)
-        return result
+        return self.model(x)
 
 model_factory = {
     "linear": LinearClassifier,
