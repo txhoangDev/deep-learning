@@ -37,7 +37,7 @@ def test_logging(logger: tb.SummaryWriter):
             global_step += 1
 
         # Log average train_accuracy
-        logger.add_scalar("train_accuracy", torch.cat(metrics["train_acc"]).mean().item(), epoch)
+        logger.add_scalar("train_accuracy", torch.cat(metrics["train_acc"]).mean().item(), global_step - 1)
 
         # example validation loop
         torch.manual_seed(epoch)
@@ -48,7 +48,7 @@ def test_logging(logger: tb.SummaryWriter):
             metrics["val_acc"].append(dummy_validation_accuracy)
 
         # Log average val_accuracy
-        logger.add_scalar("val_accuracy", torch.cat(metrics["val_acc"]).mean().item(), epoch)
+        logger.add_scalar("val_accuracy", torch.cat(metrics["val_acc"]).mean().item(), global_step - 1)
 
 
 if __name__ == "__main__":
