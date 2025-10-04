@@ -26,8 +26,32 @@ class Classifier(nn.Module):
         self.register_buffer("input_mean", torch.as_tensor(INPUT_MEAN))
         self.register_buffer("input_std", torch.as_tensor(INPUT_STD))
 
-        # TODO: implement
-        pass
+        self.features = nn.Sequential(
+            nn.Conv2d(in_channels, 32, kernel_size=3, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size=3, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+
+            nn.Conv2d(128, 256, kernel_size=3, padding=1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+        )
+
+        self.classifier = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(256 * 8 * 8, 256),
+            nn.ReLU(),
+            nn.Linear(256, num_classes),
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -37,13 +61,8 @@ class Classifier(nn.Module):
         Returns:
             tensor (b, num_classes) logits
         """
-        # optional: normalizes the input
         z = (x - self.input_mean[None, :, None, None]) / self.input_std[None, :, None, None]
-
-        # TODO: replace with actual forward pass
-        logits = torch.randn(x.size(0), 6)
-
-        return logits
+        return self.classifier(self.features(z))
 
     def predict(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -78,30 +97,123 @@ class Detector(torch.nn.Module):
         self.register_buffer("input_mean", torch.as_tensor(INPUT_MEAN))
         self.register_buffer("input_std", torch.as_tensor(INPUT_STD))
 
-        # TODO: implement
-        pass
+        # --- Encoder ---
+        self.enc1 = nn.Sequential(
+            nn.Conv2d(in_channels, 32, 3, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+        ) 
+
+        self.pool1 = nn.MaxPool2d(2) 
+
+        self.enc2 = nn.Sequential(
+            nn.Conv2d(32, 64, 3, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+        )
+
+        self.pool2 = nn.MaxPool2d(2)
+
+        self.enc3 = nn.Sequential(
+            nn.Conv2d(64, 128, 3, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+        )
+
+        self.pool3 = nn.MaxPool2d(2)
+
+        self.bottleneck = nn.Sequential(
+            nn.Conv2d(128, 256, 3, padding=1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(inplace=True),
+        )
+
+        self.up1 = nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2)  # (B, 128, H/4, W/4)
+        self.dec1 = nn.Sequential(
+            nn.Conv2d(256, 128, 3, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+        )
+
+        self.up2 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2)   # (B, 64, H/2, W/2)
+        self.dec2 = nn.Sequential(
+            nn.Conv2d(128, 64, 3, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+        )
+
+        self.up3 = nn.ConvTranspose2d(64, 32, kernel_size=2, stride=2)    # (B, 32, H, W)
+        self.dec3 = nn.Sequential(
+            nn.Conv2d(64, 32, 3, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+        )
+
+        self.seg_head = nn.Conv2d(32, num_classes, 1)
+
+        self.up1_d = nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2)
+        self.dec1_d = nn.Sequential(
+            nn.Conv2d(256, 128, 3, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+        )
+
+        self.up2_d = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2)
+        self.dec2_d = nn.Sequential(
+            nn.Conv2d(128, 64, 3, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+        )
+
+        self.up3_d = nn.ConvTranspose2d(64, 32, kernel_size=2, stride=2)
+        self.dec3_d = nn.Sequential(
+            nn.Conv2d(64, 32, 3, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+        )
+
+        self.depth_head = nn.Sequential(
+            nn.Conv2d(32, 1, 1),
+            nn.Sigmoid()
+        )
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """
-        Used in training, takes an image and returns raw logits and raw depth.
-        This is what the loss functions use as input.
-
-        Args:
-            x (torch.FloatTensor): image with shape (b, 3, h, w) and vals in [0, 1]
-
-        Returns:
-            tuple of (torch.FloatTensor, torch.FloatTensor):
-                - logits (b, num_classes, h, w)
-                - depth (b, h, w)
-        """
-        # optional: normalizes the input
         z = (x - self.input_mean[None, :, None, None]) / self.input_std[None, :, None, None]
 
-        # TODO: replace with actual forward pass
-        logits = torch.randn(x.size(0), 3, x.size(2), x.size(3))
-        raw_depth = torch.rand(x.size(0), x.size(2), x.size(3))
+        x1 = self.enc1(z)
+        p1 = self.pool1(x1)
 
-        return logits, raw_depth
+        x2 = self.enc2(p1)
+        p2 = self.pool2(x2)
+
+        x3 = self.enc3(p2)
+        p3 = self.pool3(x3)
+
+        b = self.bottleneck(p3)
+
+        u1 = self.up1(b) 
+        d1 = self.dec1(torch.cat([u1, x3], 1))
+
+        u2 = self.up2(d1) 
+        d2 = self.dec2(torch.cat([u2, x2], 1))
+
+        u3 = self.up3(d2)
+        d3 = self.dec3(torch.cat([u3, x1], 1))
+
+        seg_logits = self.seg_head(d3) 
+
+        u1_d = self.up1_d(b)
+        d1_d = self.dec1_d(torch.cat([u1_d, x3], 1))
+
+        u2_d = self.up2_d(d1_d)
+        d2_d = self.dec2_d(torch.cat([u2_d, x2], 1))
+
+        u3_d = self.up3_d(d2_d)
+        d3_d = self.dec3_d(torch.cat([u3_d, x1], 1))
+
+        depth = self.depth_head(d3_d).squeeze(1)
+
+        return seg_logits, depth
 
     def predict(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
