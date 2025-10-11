@@ -61,6 +61,9 @@ for epoch in range(num_epoch):
               f"| Lateral: {results['lateral_error']:.4f} "
               f"| L1: {results['l1_error']:.4f}"
           )
+      save_model(net)
+      torch.save(net.state_dict(), "mlp_planner_{epoch}.th")
+      print(f"Model saved to {f'mlp_planner_{epoch}.th'}")
 
 save_model(net)
 torch.save(net.state_dict(), "mlp_planner.th")

@@ -40,8 +40,9 @@ class MLPPlanner(nn.Module):
         self.n_waypoints = n_waypoints
         self.model = nn.Sequential(
             nn.Flatten(),
-            self.Block(2 * n_track * 2, 256),
-            self.Block(256, 256),
+            self.Block(2 * n_track * 2, 512),
+            self.Block(512, 512),
+            self.Block(512, 256),
             nn.Linear(256, n_waypoints * 2),
         )
 
@@ -82,7 +83,17 @@ class TransformerPlanner(nn.Module):
         self.n_track = n_track
         self.n_waypoints = n_waypoints
 
+        self.input_proj = nn.Linear(2*n_track*2, d_model)
         self.query_embed = nn.Embedding(n_waypoints, d_model)
+        
+        decoder_layer = nn.TransformerDecoderLayer(
+            d_model=d_model,
+            nhead=4,
+            batch_first=True,
+        )
+        
+        self.net = nn.TransformerDecoder(decoder_layer, 3)
+        self.output_proj = nn.Linear(d_model, 2)
 
     def forward(
         self,
