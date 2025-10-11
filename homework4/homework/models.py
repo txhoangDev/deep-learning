@@ -15,9 +15,14 @@ class MLPPlanner(nn.Module):
             self.linear = nn.Linear(in_features, out_features)
             self.norm = nn.LayerNorm(out_features)
             self.activation = nn.ReLU()
+            if(in_features != out_features):
+              self.skip = nn.Linear(in_features, out_features)
+            else:
+              self.skip = nn.Identity()
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
-            return self.activation(self.norm(self.linear(x)))
+            y = self.activation(self.norm(self.linear(x)))
+            return y + self.skip(x)
 
     def __init__(
         self,

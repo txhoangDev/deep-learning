@@ -15,16 +15,12 @@ net = MLPPlanner()
 net = net.to(device)
 
 optim = torch.optim.AdamW(net.parameters(), lr=1e-3)
-criterion = torch.nn.CrossEntropyLoss()
+criterion = torch.nn.L1Loss()
 
 planner_metric = PlannerMetric()
 
-global_step = 0
-metrics = {"train_acc": [], "val_acc": []}
 num_epoch = 50
 for epoch in range(num_epoch):
-  for key in metrics:
-    metrics[key].clear()
 
   net.train()
   total_loss = 0
