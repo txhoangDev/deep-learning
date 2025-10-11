@@ -9,6 +9,16 @@ INPUT_STD = [0.2064, 0.1944, 0.2252]
 
 
 class MLPPlanner(nn.Module):
+    class Block(nn.Module):
+        def __init__(self, in_features: int, out_features: int):
+            super().__init__()
+            self.linear = nn.Linear(in_features, out_features)
+            self.norm = nn.LayerNorm(out_features)
+            self.activation = nn.ReLU()
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return self.activation(self.norm(self.linear(x)))
+
     def __init__(
         self,
         n_track: int = 10,
@@ -23,6 +33,12 @@ class MLPPlanner(nn.Module):
 
         self.n_track = n_track
         self.n_waypoints = n_waypoints
+        self.model = nn.Sequential(
+            nn.Flatten(),
+            self.Block(2 * n_track * 2, 256),
+            self.Block(256, 256),
+            nn.Linear(256, n_waypoints * 2),
+        )
 
     def forward(
         self,
@@ -43,7 +59,10 @@ class MLPPlanner(nn.Module):
         Returns:
             torch.Tensor: future waypoints with shape (b, n_waypoints, 2)
         """
-        raise NotImplementedError
+        x = torch.cat([track_left, track_right], dim=2)
+        x = self.model(x)
+        x = x.view(-1, self.n_waypoints, 2)
+        return x
 
 
 class TransformerPlanner(nn.Module):
