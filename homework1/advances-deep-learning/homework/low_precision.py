@@ -73,7 +73,7 @@ class Linear4Bit(torch.nn.Module):
     ):
         if f"{prefix}weight" in state_dict:
             # Load the original weights and remove them from the state_dict (mark them as loaded)
-            weight = state_dict[f"{prefix}weight"]  # noqa: F841
+            weight = state_dict[f"{prefix}weight"].reshape(-1)
             del state_dict[f"{prefix}weight"]
             # TODO: Quantize the weights and store the quantized weights in self.weight_q4 and self.weight_norm
             self.weight_q4, self.weight_norm = block_quantize_4bit(weight, self._group_size)

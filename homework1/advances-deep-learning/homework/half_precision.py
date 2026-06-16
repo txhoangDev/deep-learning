@@ -17,7 +17,6 @@ class HalfLinear(torch.nn.Linear):
         Feel free to use the torch.nn.Linear class as a parent class (it makes load_state_dict easier, names match).
         Feel free to set self.requires_grad_ to False, we will not backpropagate through this layer.
         """
-        # TODO: Implement me
         super().__init__(in_features, out_features, bias)
         self.weight.data = self.weight.data.half()
         if self.bias is not None:

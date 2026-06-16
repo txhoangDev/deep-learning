@@ -27,20 +27,23 @@ class LoRALinear(HalfLinear):
         """
         super().__init__(in_features, out_features, bias)
         # ensuring linear layers are not trainable
-        self.requires_grad_(False)
-        # LoRA layers
-        self.lora_a = torch.nn.Linear(in_features, lora_dim, bias=False, dtype=torch.float32)
-        self.lora_b = torch.nn.Linear(lora_dim, out_features, bias=False, dtype=torch.float32)
-        # Initialize LoRA layers
+        self.alpha = 1.0 / lora_dim
+        self.lora_a = torch.nn.Linear(in_features, lora_dim, bias=bias)
+        self.lora_b = torch.nn.Linear(lora_dim, out_features, bias=bias)
+
         torch.nn.init.kaiming_uniform_(self.lora_a.weight, a=math.sqrt(5))
+        torch.nn.init.zeros_(self.lora_a.bias)
         torch.nn.init.zeros_(self.lora_b.weight)
+        torch.nn.init.zeros_(self.lora_b.bias)
+
+        self.lora_a.requires_grad_(True)
+        self.lora_b.requires_grad_(True)
+
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        original_dtype = x.dtype
-        x_converted = x.to(torch.float16)
-        linear_output = super().forward(x_converted)
-        lora_output = self.lora_b(self.lora_a(x))
-        return (linear_output.to(original_dtype) + lora_output.to(original_dtype))
+        base = super().forward(x)
+        lora = self.lora_b(self.lora_a(x.float()))
+        return base + lora.to(base.dtype) * self.alpha
 
 
 class LoraBigNet(torch.nn.Module):
