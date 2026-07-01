@@ -34,11 +34,13 @@ class Autoregressive(abc.ABC):
                 values, and before passing them through your model. (torch.concat or
                 torch.nn.ConstantPad1d both work)
         """
+        pass
 
     def generate(self, B: int = 1, h: int = 20, w: int = 30, device=None) -> torch.Tensor:  # noqa
         """
         Use your generative model to produce B new token images of size (B, h, w) and type (int/long).
         """
+        pass
 
 
 class AutoregressiveModel(torch.nn.Module, Autoregressive):
@@ -55,10 +57,37 @@ class AutoregressiveModel(torch.nn.Module, Autoregressive):
 
     def __init__(self, d_latent: int = 128, n_tokens: int = 2**10):
         super().__init__()
-        raise NotImplementedError()
+        self.n_tokens = n_tokens
+        encoder_layer = torch.nn.TransformerEncoderLayer(
+            d_model=d_latent, 
+            nhead=4, 
+            batch_first=True
+        )
+        self.transformer = torch.nn.TransformerEncoder(encoder_layer, num_layers=2)
+        self.embedding = torch.nn.Embedding(num_embeddings=n_tokens, embedding_dim=d_latent)
+        self.output = torch.nn.Linear(d_latent, n_tokens)
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        raise NotImplementedError()
+        B, h, w = x.shape
+        device = x.device
+        T = h * w
+        x = x.reshape(B, T)
+        x = torch.nn.functional.pad(x[:, :-1], [1, 0])
+        x = self.embedding(x)
+        mask = torch.triu(torch.ones(T, T, device=device), diagonal=1)
+        mask = mask.masked_fill(mask == 1, float("-inf"))
+        x = self.transformer(x, mask=mask)
+        logits = self.output(x)
+        return logits.reshape(B, h, w, self.n_tokens), {}
 
     def generate(self, B: int = 1, h: int = 30, w: int = 20, device=None) -> torch.Tensor:  # noqa
-        raise NotImplementedError()
+        T = h * w
+        x = torch.zeros((B, h, w), dtype=torch.long, device=device)
+        for i in range(h):
+            for j in range(w):
+                logits, _ = self.forward(x)
+                current_logits = logits[:, i, j, :]
+                probs = torch.nn.functional.softmax(current_logits, dim=-1)
+                next_token = torch.multinomial(probs, 1).squeeze(-1)
+                x[:, i, j] = next_token
+        return x

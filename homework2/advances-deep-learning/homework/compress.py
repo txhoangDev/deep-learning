@@ -14,6 +14,8 @@ class Compressor:
         super().__init__()
         self.tokenizer = tokenizer
         self.autoregressive = autoregressive
+        self.precision = 16
+        self.frequencies = 1 << self.precision
 
     def compress(self, x: torch.Tensor) -> bytes:
         """
@@ -21,14 +23,108 @@ class Compressor:
 
         Use arithmetic coding.
         """
-        raise NotImplementedError()
+        self.tokenizer.eval()
+        self.autoregressive.eval()
+        device = next(self.autoregressive.parameters()).device
+
+        if x.ndim == 3:
+            x = x.unsqueeze(0)
+
+        with torch.no_grad():
+            tokens = self.tokenizer.encode_index(x.to(device)).long()
+            logits, _ = self.autoregressive(tokens)
+            probs = torch.nn.functional.softmax(logits, dim=-1)
+
+        tokens_flat = tokens[0].flatten().tolist()
+        probs_flat = probs[0].flatten(0, 1)
+
+        low = 0
+        width = 1
+
+        for i, sym in enumerate(tokens_flat):
+            p = (probs_flat[i].detach().cpu() * self.frequencies).long()
+            p = torch.clamp(p, min=1)
+
+            diff = self.frequencies - int(p.sum())
+            if diff > 0:
+                p[p.argmax()] += diff
+            elif diff < 0:
+                for _ in range(-diff):
+                    idx = p.argmax()
+                    if p[idx] > 1:
+                        p[idx] -= 1
+
+            cdf = torch.zeros_like(p)
+            cdf[1:] = torch.cumsum(p[:-1], dim=0)
+
+            low = (low << self.precision) + width * int(cdf[sym])
+            width *= int(p[sym])
+
+        total_bits = self.precision * len(tokens_flat)
+        for byte_len in range(1, total_bits // 8 + 1):
+            shift = total_bits - 8 * byte_len
+            unit = 1 << shift
+            point = ((low + unit - 1) // unit) * unit
+
+            if point < low + width:
+                return (point >> shift).to_bytes(byte_len, "big")
+
+        return low.to_bytes(total_bits // 8, "big")
 
     def decompress(self, x: bytes) -> torch.Tensor:
         """
         Decompress a tensor into a PIL image.
         You may assume the output image is 150 x 100 pixels.
         """
-        raise NotImplementedError()
+        h, w = 20, 30
+        N = h * w
+
+        self.tokenizer.eval()
+        self.autoregressive.eval()
+        device = next(self.autoregressive.parameters()).device
+        tokens = torch.zeros((1, h, w), dtype=torch.long, device=device)
+
+        total_bits = self.precision * N
+        if len(x) == 0 or len(x) * 8 > total_bits:
+            raise ValueError("Invalid compressed stream")
+
+        V = int.from_bytes(x, "big") << (total_bits - len(x) * 8)
+
+        with torch.no_grad():
+            for i in range(h):
+                for j in range(w):
+                    logits, _ = self.autoregressive(tokens)
+                    probs = torch.nn.functional.softmax(logits[0, i, j], dim=-1)
+
+                    p = (probs.detach().cpu() * self.frequencies).long()
+                    p = torch.clamp(p, min=1)
+
+                    diff = self.frequencies - int(p.sum())
+                    if diff > 0:
+                        p[p.argmax()] += diff
+                    elif diff < 0:
+                        for _ in range(-diff):
+                            idx = p.argmax()
+                            if p[idx] > 1:
+                                p[idx] -= 1
+
+                    cdf = torch.zeros_like(p)
+                    cdf[1:] = torch.cumsum(p[:-1], dim=0)
+
+                    step = i * w + j
+                    shift = self.precision * (N - 1 - step)
+                    target = V >> shift
+
+                    sym = 0
+                    for v in range(len(cdf)):
+                        if int(cdf[v]) <= target < int(cdf[v] + p[v]):
+                            sym = v
+                            break
+
+                    tokens[0, i, j] = sym
+                    V = (V - (int(cdf[sym]) << shift)) // int(p[sym])
+
+            return self.tokenizer.decode_index(tokens)[0]
 
 
 def compress(tokenizer: Path, autoregressive: Path, image: Path, compressed_image: Path):
